@@ -410,91 +410,109 @@ react_agent_executor = create_react_agent(
     store=None
 )
 
-# # Sử dụng create_tool_calling_agent là cách hiện đại để tạo agent có khả năng gọi tool
-# main_agent_runnable = create_tool_calling_agent(
-#     llm=main_llm,
-#     tools=main_assistant_tools,
-#     prompt=main_assistant_prompt
-# )
-
-# # AgentExecutor sẽ chạy agent và quản lý việc gọi tool
-# # `handle_parsing_errors=True` giúp agent ổn định hơn
-# main_agent_executor = AgentExecutor(
-#     agent=main_agent_runnable,
-#     tools=main_assistant_tools,
-#     verbose=True, # Để xem log chi tiết của agent
-#     handle_parsing_errors=True,
-#     max_iterations=5 # Giới hạn số lần gọi tool để tránh vòng lặp vô hạn
-# )
-
-
 def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
-    """
-    Node chính thực thi kế hoạch từ QPA, sử dụng tools để trả lời.
-    """
     logger.info("--- Bắt đầu Main Assistant Node ---")
     query_analysis_result = state["query_analysis"]
+
+    # Kiểm tra xem query_analysis_result có tồn tại không
     if not query_analysis_result:
         logger.error("Main Assistant Node: Không có Query Analysis result.")
-        return {**state, "final_answer": "Lỗi: Không có thông tin phân tích để xử lý.", "clarification_needed": False}
+        error_msg = "Lỗi: Không có thông tin phân tích để xử lý."
+        return {
+            "messages": [AIMessage(content=error_msg)],
+            "final_answer": error_msg,
+            "clarification_needed": False
+        }
 
-    # Chuẩn bị input cho agent
-    # Truyền toàn bộ QPA output như một phần của "input" cho agent này.
-    # Hoặc có thể format nó thành một tin nhắn hệ thống/user đặc biệt.
-    # Ở đây, chúng ta sẽ format nó vào prompt system và các biến khác.
+    # Chuẩn bị dữ liệu cho prompt hệ thống
     qpa_output_str = query_analysis_result.model_dump_json(indent=2)
     user_roles_str = ", ".join(query_analysis_result.user_roles or ["Employee"])
     asker_role_context = query_analysis_result.asker_role_context or "Employee"
     plan_steps_str = "\n- ".join(query_analysis_result.plan_steps or ["Không có kế hoạch cụ thể."])
     if query_analysis_result.plan_steps:
         plan_steps_str = "- " + plan_steps_str
+
+    # Định dạng prompt hệ thống
+    system_prompt = main_assistant_prompt_str_system.format(
+        qpa_output_str=qpa_output_str,
+        user_roles_str=user_roles_str,
+        asker_role_context=asker_role_context,
+        plan_steps_str=plan_steps_str
+    )
+
+    # Lấy messages từ state
     all_messages = state.get("messages", [])
-    current_user_input_message = ""
-    chat_history_for_agent = []
-    if all_messages:
-        if isinstance(all_messages[-1], HumanMessage):
-            current_user_input_message = all_messages[-1].content
-            chat_history_for_agent = all_messages[:-1]
-        else: # Trường hợp đặc biệt, có thể là lỗi hoặc state khởi tạo chưa đúng
-            current_user_input_message = state["original_query"] # Fallback
-            chat_history_for_agent = all_messages
+    if all_messages and isinstance(all_messages[-1], HumanMessage):
+        current_user_input_message = all_messages[-1].content
+        chat_history = all_messages[:-1]
+    else:
+        current_user_input_message = query_analysis_result.original_query or state["original_query"]
+        chat_history = all_messages
+
+    # Chuẩn bị input cho agent
+    agent_input = {
+        "messages": [
+            SystemMessage(content=system_prompt),
+            *chat_history,
+            HumanMessage(content=current_user_input_message)
+        ]
+    }
+
     try:
-        # Gọi agent executor
-        # AgentExecutor mong đợi input là một dict
-        agent_input_dict = {
-            "input": current_user_input_message, # Input cho HumanMessagePromptTemplate
-            "chat_history": chat_history_for_agent, # Cho MessagesPlaceholder("chat_history")
-            "qpa_output_str": qpa_output_str,
-            "user_roles_str": user_roles_str,
-            "asker_role_context": asker_role_context,
-            "plan_steps_str": plan_steps_str,
-        }
-        response = react_agent_executor.invoke(agent_input_dict)
-        #response =  main_agent_executor.invoke(agent_input_dict)
-        final_answer = response.get("output", "Không có phản hồi từ Amber.")
+        # Gọi agent executor để xử lý input
+        response = react_agent_executor.invoke(agent_input)
+        print(response)
+        logger.info(f"Main Assistant Node: Phản hồi đầy đủ từ react_agent_executor: {response}")
+        # Lấy câu trả lời từ response
+        # Trích xuất câu trả lời cuối cùng của AI từ response
+        final_ai_message_content = "Không có phản hồi từ Amber."
+        if isinstance(response, dict):
+            agent_messages = response.get("messages", [])
+            if agent_messages and isinstance(agent_messages[-1], AIMessage):
+                final_ai_message_content = agent_messages[-1].content
+            else:
+                logger.warning("Không tìm thấy AIMessage cuối cùng trong messages của response từ react_agent_executor.")
+        else:
+            logger.warning(f"Response từ react_agent_executor không phải là dict: {type(response)}")
 
-        if not final_answer: # Fallback
-            final_answer = "Amber chưa thể đưa ra câu trả lời lúc này, bạn thử lại sau nhé."
+        final_answer = final_ai_message_content
 
+        # Fallback nếu không có câu trả lời (đã được xử lý bởi logic trên)
+        if final_answer == "Không có phản hồi từ Amber." or not final_answer.strip() : # Kiểm tra kỹ hơn
+            logger.warning("Final answer rỗng hoặc là fallback mặc định. Sử dụng fallback tùy chỉnh.")
+            final_answer = "Ối, Amber tìm kỹ rồi mà vẫn chưa thấy thông tin bạn cần 😥. Bạn thử hỏi lại nhé!"
 
-        logger.info(f"Main Assistant Node: Phản hồi cuối cùng: '{final_answer}'")
+        logger.info(f"Main Assistant Node: Phản hồi cuối cùng đã trích xuất: '{final_answer}'")
+
+        # Cập nhật state của graph lớn
+        # messages của graph lớn sẽ là messages cũ + HumanMessage hiện tại (đã có trong state["messages"])
+        # và bây giờ thêm AIMessage từ agent.
+        # Cách bạn làm `state["messages"] + [AIMessage(content=final_answer)]` là ĐÚNG
+        # vì state["messages"] được truyền vào node này chứa lịch sử cho đến HumanMessage hiện tại.
+        
+        updated_graph_messages = state.get("messages", []) + [AIMessage(content=final_answer)]
 
         return {
-            "messages": [AIMessage(content=final_answer)],
-            "final_answer": final_answer,
+            # "messages": updated_graph_messages, # Đây là cách cập nhật messages cho graph LỚN
+            # Tuy nhiên, nếu AmelaReactCompatibleAgentState được định nghĩa với MessagesPlaceholder,
+            # LangGraph sẽ tự động thêm AIMessage này vào state["messages"] của graph lớn
+            # nếu node trả về AIMessage trong key "messages".
+            "messages": [AIMessage(content=final_answer)], # Trả về AIMessage để LangGraph tự append
+            "final_answer": final_answer, # Vẫn giữ để tiện truy cập
             "clarification_needed": False
         }
 
     except Exception as e:
-        logger.error(f"Lỗi trong Main Assistant Node: {e}", exc_info=True)
-        error_message = f"Xin lỗi, Amber đã gặp sự cố khi xử lý yêu cầu của bạn: {str(e)[:100]}..."
-         
+        logger.error(f"Lỗi trong Main Assistant Node: {str(e)}", exc_info=True)
+        error_message = f"Xin lỗi, Amber đã gặp sự cố khi xử lý yêu cầu của bạn: {str(e)[:100]}... 😓"
+        # Tương tự, cập nhật messages của graph lớn với lỗi này
+        updated_graph_messages_error = state.get("messages", []) + [AIMessage(content=error_message)]
         return {
+            # "messages": updated_graph_messages_error,
             "messages": [AIMessage(content=error_message)],
             "final_answer": error_message,
             "clarification_needed": False
         }
-
 # Placeholder cho node xử lý lỗi (nếu cần)
 def error_handler_node(state: AmelaReactCompatibleAgentState) -> dict: # Sửa kiểu trả về
     logger.error("--- Bắt đầu Error Handler Node ---")

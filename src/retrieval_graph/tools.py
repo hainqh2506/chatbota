@@ -115,7 +115,7 @@ def format_retriever_results_placeholder(relevant_docs: List[Dict[str, Any]]) ->
 #     return format_retriever_results(relevant_docs)
 
 @tool
-def amela_documents_search_tool(query: str, state: Annotated[AmelaReactCompatibleAgentState, InjectedState]) -> str:
+def amela_documents_search_tool(query: str, state: Annotated[dict, InjectedState]) -> str:
     """
     (Placeholder) Tìm kiếm tài liệu nội bộ Amela liên quan đến query.
     """
@@ -125,15 +125,13 @@ def amela_documents_search_tool(query: str, state: Annotated[AmelaReactCompatibl
     if qpa_output and qpa_output.user_roles:
         effective_roles_for_search = qpa_output.user_roles
     elif state.get("user_roles"): # Fallback về user_roles ban đầu nếu QPA không có
-        effective_roles_for_search = state.get("user_roles")
-    else:
-        effective_roles_for_search = []
+        effective_roles_for_search = state.get("user_roles", [])
     
     logger.info(f"[Tool] amela_documents_search_tool called with query: '{query}', effective_roles: {effective_roles_for_search}")
     relevant_docs = retriever.get_context(query, effective_roles_for_search)
     return format_retriever_results(relevant_docs)
 @tool
-async def company_structure_tool(query: str) -> str:
+def company_structure_tool(query: str) -> str:
     """
     (Placeholder) Cung cấp thông tin về cơ cấu tổ chức, phòng ban, đội nhóm, tên viết tắt của Amela.
     """
@@ -150,7 +148,7 @@ async def company_structure_tool(query: str) -> str:
 # google_search_tool = GoogleSearchAPIWrapper() # Cần GOOGLE_API_KEY và GOOGLE_CSE_ID
 # Hoặc một tool đơn giản:
 @tool
-async def google_search_placeholder_tool(query: str) -> str:
+def google_search_placeholder_tool(query: str) -> str:
     """(Placeholder) Tìm kiếm trên Google."""
     logger.info(f"[Tool Placeholder] google_search_placeholder_tool called with query: '{query}'")
     return f"Kết quả tìm kiếm Google cho '{query}': [Nội dung từ Google - Placeholder]"

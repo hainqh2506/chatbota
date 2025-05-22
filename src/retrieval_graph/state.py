@@ -51,7 +51,7 @@ class AmelaReactCompatibleAgentState(LangGraphReactAgentState): # Kế thừa
     user_roles: List[str]
 
     # Thông tin được các node điền vào
-    query_analysis: Optional[QueryAnalysisOutput]
-    final_answer: Optional[str] # Câu trả lời cuối cùng dưới dạng text
-    clarification_needed: bool
-    ask_clarification_questions: Optional[List[str]]
+    query_analysis: Optional[QueryAnalysisOutput] = None # Kết quả phân tích câu hỏi
+    final_answer: Optional[str] = None # Câu trả lời cuối cùng dưới dạng text
+    clarification_needed: bool = False # Có cần hỏi lại người dùng không
+    ask_clarification_questions: Optional[List[str]] = None # Các câu hỏi cần hỏi lại người dùng
