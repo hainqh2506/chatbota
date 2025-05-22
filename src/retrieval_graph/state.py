@@ -14,7 +14,7 @@ class SubQuestion(BaseModel): # Pydantic v2 BaseModel
 
 class QueryAnalysisOutput(BaseModel): # Pydantic v2 BaseModel
     original_query: str = Field(..., description="Câu hỏi gốc của người dùng.")
-    user_roles: List[str] = Field(..., description="Danh sách vai trò gốc của người dùng.")
+    user_roles: Optional[List[str]] = Field(..., description="Danh sách vai trò gốc của người dùng.")
     asker_role_context: str = Field(..., description="Vai trò suy luận của người hỏi (ví dụ: 'nhân viên', 'quản lý').")
     intent: str = Field(..., description="Ý định chính suy luận từ câu hỏi của người dùng.")
     entities: List[str] = Field(..., description="Danh sách các thực thể hoặc từ khóa chính được trích xuất.")

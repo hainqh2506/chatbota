@@ -14,7 +14,7 @@ from state import AmelaReactCompatibleAgentState, QueryAnalysisOutput
 from typing import List, Dict, Any, Optional, Annotated
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import InMemorySaver
-tool = TavilySearch(max_results=2)
+# tool = TavilySearch(max_results=2)
 # Tải biến môi trường (ví dụ GOOGLE_API_KEY)
 load_dotenv()
 
@@ -152,7 +152,7 @@ structured_qpa_llm = qpa_llm.with_structured_output(QueryAnalysisOutput)
 # Chain cho Query Analysis
 query_analysis_chain = query_analysis_prompt | structured_qpa_llm
 
-async def query_analysis_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
+def query_analysis_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
     """
     Node thực hiện phân tích câu hỏi của người dùng.
     """
@@ -167,7 +167,7 @@ async def query_analysis_node(state: AmelaReactCompatibleAgentState) -> AmelaRea
 
     try:
         # Gọi chain để lấy kết quả phân tích có cấu trúc
-        analysis_result: QueryAnalysisOutput = await query_analysis_chain.ainvoke({
+        analysis_result: QueryAnalysisOutput =  query_analysis_chain.invoke({
             "original_query": original_query,
             "user_roles": user_roles
         })
@@ -203,7 +203,7 @@ async def query_analysis_node(state: AmelaReactCompatibleAgentState) -> AmelaRea
 # --- Constants cho Router ---
 DIRECT_RESPONSE_INTENTS = ["social_greeting", "chatbot_capability_query", "blocked_profanity"]
 
-async def route_after_qpa(state: AmelaReactCompatibleAgentState) -> str:
+def route_after_qpa(state: AmelaReactCompatibleAgentState) -> str:
     """
     Quyết định nhánh tiếp theo sau khi Query Analysis hoàn tất.
     Trả về tên của node tiếp theo hoặc một giá trị đặc biệt để kết thúc sớm.
@@ -258,7 +258,7 @@ async def route_after_qpa(state: AmelaReactCompatibleAgentState) -> str:
     return "main_assistant_node"
 from langchain_core.messages import AIMessage
 # --- Node cho Phản hồi trực tiếp ---
-async def direct_response_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
+def direct_response_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
     """
     Tạo phản hồi trực tiếp dựa trên intent từ QueryAnalysis.
     """
@@ -294,7 +294,7 @@ async def direct_response_node(state: AmelaReactCompatibleAgentState) -> AmelaRe
         
 
 # --- Node cho việc Hỏi lại làm rõ ---
-async def clarification_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
+def clarification_node(state: AmelaReactCompatibleAgentState) -> AmelaReactCompatibleAgentState:
     """
     Tạo câu hỏi làm rõ cho người dùng.
     """
@@ -403,32 +403,32 @@ checkpointer = InMemorySaver()
 react_agent_executor = create_react_agent(
     model=main_llm,
     tools=main_assistant_tools,
-    pre_model_hook=simple_trimming_hook,
-    checkpointer=checkpointer,
-    verbose=True,
+    #pre_model_hook=simple_trimming_hook,
+    #checkpointer=checkpointer,
+    debug=True,
     state_schema=AmelaReactCompatibleAgentState,
     store=None
 )
 
-# Sử dụng create_tool_calling_agent là cách hiện đại để tạo agent có khả năng gọi tool
-main_agent_runnable = create_tool_calling_agent(
-    llm=main_llm,
-    tools=main_assistant_tools,
-    prompt=main_assistant_prompt
-)
+# # Sử dụng create_tool_calling_agent là cách hiện đại để tạo agent có khả năng gọi tool
+# main_agent_runnable = create_tool_calling_agent(
+#     llm=main_llm,
+#     tools=main_assistant_tools,
+#     prompt=main_assistant_prompt
+# )
 
-# AgentExecutor sẽ chạy agent và quản lý việc gọi tool
-# `handle_parsing_errors=True` giúp agent ổn định hơn
-main_agent_executor = AgentExecutor(
-    agent=main_agent_runnable,
-    tools=main_assistant_tools,
-    verbose=True, # Để xem log chi tiết của agent
-    handle_parsing_errors=True,
-    max_iterations=5 # Giới hạn số lần gọi tool để tránh vòng lặp vô hạn
-)
+# # AgentExecutor sẽ chạy agent và quản lý việc gọi tool
+# # `handle_parsing_errors=True` giúp agent ổn định hơn
+# main_agent_executor = AgentExecutor(
+#     agent=main_agent_runnable,
+#     tools=main_assistant_tools,
+#     verbose=True, # Để xem log chi tiết của agent
+#     handle_parsing_errors=True,
+#     max_iterations=5 # Giới hạn số lần gọi tool để tránh vòng lặp vô hạn
+# )
 
 
-async def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
+def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
     """
     Node chính thực thi kế hoạch từ QPA, sử dụng tools để trả lời.
     """
@@ -469,8 +469,8 @@ async def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
             "asker_role_context": asker_role_context,
             "plan_steps_str": plan_steps_str,
         }
-
-        response = await main_agent_executor.ainvoke(agent_input_dict)
+        response = react_agent_executor.invoke(agent_input_dict)
+        #response =  main_agent_executor.invoke(agent_input_dict)
         final_answer = response.get("output", "Không có phản hồi từ Amber.")
 
         if not final_answer: # Fallback
@@ -496,7 +496,7 @@ async def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
         }
 
 # Placeholder cho node xử lý lỗi (nếu cần)
-async def error_handler_node(state: AmelaReactCompatibleAgentState) -> dict: # Sửa kiểu trả về
+def error_handler_node(state: AmelaReactCompatibleAgentState) -> dict: # Sửa kiểu trả về
     logger.error("--- Bắt đầu Error Handler Node ---")
     error_message = state.get("error_message", "Đã có lỗi không xác định xảy ra trong quá trình xử lý. Vui lòng thử lại.")
     logger.info(f"Error Handler Node: Thông báo lỗi: '{error_message}'")
