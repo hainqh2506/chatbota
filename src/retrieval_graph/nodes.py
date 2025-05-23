@@ -430,53 +430,62 @@ Hãy luôn đưa gợi ý dạng này nếu confidence thấp hoặc tool trả 
 
 Bạn là Amber. Giữ vững phong độ và bắt đầu nhé! 🚀
 """
-
-
-# Langchain agent thường dùng MessagesPlaceholder. "chat_history" và "input" là keys phổ biến.
-# "agent_scratchpad" được Langchain dùng để lưu các bước suy nghĩ và tool call/response.
-main_assistant_prompt = ChatPromptTemplate.from_messages([
-    ("system", main_assistant_prompt_str_system),
-    MessagesPlaceholder(variable_name="chat_history", optional=True), # Lịch sử hội thoại
-    ("human", "{input}"), # Input hiện tại, sẽ bao gồm cả thông tin QPA
-    MessagesPlaceholder(variable_name="agent_scratchpad"), # Cho tool calling
-])
-# def prompt(
-#     state: AmelaReactCompatibleAgentState
-# ) -> list[AnyMessage]:
-#     system_msg = main_assistant_prompt_str_system
-#     return [{"role": "system", "content": system_msg}] + state["messages"]
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+from typing import Sequence, TypedDict
+from langchain_core.messages import BaseMessage, AnyMessage
+from langgraph.graph.message import add_messages
 # --- Tạo Langchain Agent ---
-
-def pre_model_hook(state):
-    trimmed_messages = trim_messages(
+class MainAgentInternalState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages] # Bắt buộc cho create_react_agent
+    # Các thông tin từ QPA mà prompt của agent con cần
+    qpa_output_str: str
+    user_roles_str: str
+    asker_role_context: str
+    plan_steps_str: str
+    remaining_steps: int # create_react_agent sẽ tự thêm nếu state_schema là TypedDict và không có
+def main_agent_internal_prompt_builder(state: MainAgentInternalState) -> list[AnyMessage]:
+    # main_assistant_prompt_str_system đã được định nghĩa ở trên
+    system_content = main_assistant_prompt_str_system.format(
+        qpa_output_str=state["qpa_output_str"],
+        user_roles_str=state["user_roles_str"],
+        asker_role_context=state["asker_role_context"],
+        plan_steps_str=state["plan_steps_str"]
+    )
+    # state["messages"] ở đây là messages mà agent CON đang thấy
+    # (sẽ được truyền vào từ main_assistant_node)
+    return [SystemMessage(content=system_content)] + list(state["messages"])
+def main_agent_pre_model_hook(state: MainAgentInternalState):
+    # state["messages"] ở đây là messages của agent CON
+    trimmed_agent_con_messages = trim_messages(
         state["messages"],
-        max_tokens=1500, # Ngưỡng token, ví dụ
+        max_tokens=2000, # Ngưỡng riêng cho agent con
         strategy="last",
         token_counter=count_tokens_approximately,
-        include_system=True,
+        include_system=False, # SystemMessage của agent con được thêm bởi prompt_builder
         allow_partial=False,
         start_on="human",
     )
-    return {"llm_input_messages": trimmed_messages}
+    # Chỉ cập nhật messages cho LLM của agent con, không thay đổi state chính của nó
+    return {"llm_input_messages": trimmed_agent_con_messages}
 checkpointer = InMemorySaver()
 react_agent_executor = create_react_agent(
     name="AmelaReactAgent",
-    #prompt=prompt,
     model=main_llm,
     tools=main_assistant_tools,
-    #pre_model_hook=pre_model_hook,
-    #checkpointer=checkpointer,
+    prompt=main_agent_internal_prompt_builder, # Sử dụng hàm prompt mới
+    state_schema=MainAgentInternalState,        # Sử dụng state schema mới
+    # checkpointer=checkpointer_for_main_agent, # Bỏ checkpointer ở đây nếu không muốn nó có memory riêng
+    pre_model_hook=main_agent_pre_model_hook,
     debug=True,
-    state_schema=AmelaReactCompatibleAgentState,
-    store=None,
+    store=None, # store ở đây là long-term memory cho agent con, có thể không cần thiết
 )
+
+# file: nodes.py
 
 def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
     logger.info("--- Bắt đầu Main Assistant Node ---")
     query_analysis_result = state["query_analysis"]
 
-    # Kiểm tra xem query_analysis_result có tồn tại không
     if not query_analysis_result:
         logger.error("Main Assistant Node: Không có Query Analysis result.")
         error_msg = "Lỗi: Không có thông tin phân tích để xử lý."
@@ -486,7 +495,7 @@ def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
             "clarification_needed": False
         }
 
-    # Chuẩn bị dữ liệu cho prompt hệ thống
+    # Chuẩn bị các chuỗi thông tin từ QPA
     qpa_output_str = query_analysis_result.model_dump_json(indent=2)
     user_roles_str = ", ".join(query_analysis_result.user_roles or ["Employee"])
     asker_role_context = query_analysis_result.asker_role_context or "Employee"
@@ -494,83 +503,69 @@ def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
     if query_analysis_result.plan_steps:
         plan_steps_str = "- " + plan_steps_str
 
-    # Định dạng prompt hệ thống
-    system_prompt = main_assistant_prompt_str_system.format(
-        qpa_output_str=qpa_output_str,
-        user_roles_str=user_roles_str,
-        asker_role_context=asker_role_context,
-        plan_steps_str=plan_steps_str
-    )
+    # Lấy message cuối cùng của người dùng từ state của graph LỚN
+    # Đây sẽ là message duy nhất (hoặc message đầu tiên) mà agent CON nhìn thấy.
+    # Agent con không cần toàn bộ lịch sử của graph lớn,
+    # vì thông tin ngữ cảnh đã được QPA phân tích và đưa vào prompt hệ thống của nó.
+    all_graph_messages = state.get("messages", [])
+    current_user_input_message_content = query_analysis_result.original_query # Nên dùng query gốc từ QPA
 
-    # Lấy messages từ state
-    all_messages = state.get("messages", [])
-    if all_messages and isinstance(all_messages[-1], HumanMessage):
-        current_user_input_message = all_messages[-1].content
-        chat_history = all_messages[-6:-1]
-    else:
-        current_user_input_message = query_analysis_result.original_query or state["original_query"]
-        chat_history = all_messages
+    # Tìm HumanMessage cuối cùng trong graph lớn để đảm bảo input là của user
+    # Hoặc đơn giản là query gốc nếu không có message nào
+    user_message_for_agent_con = HumanMessage(content=current_user_input_message_content)
+    if all_graph_messages:
+        for msg in reversed(all_graph_messages):
+            if isinstance(msg, HumanMessage):
+                user_message_for_agent_con = msg # Lấy HumanMessage cuối cùng
+                break
 
-    # Chuẩn bị input cho agent
-    agent_input = {
-        "messages": [
-            SystemMessage(content=system_prompt),
-            *chat_history,
-            HumanMessage(content=current_user_input_message)
-        ]
+    # Chuẩn bị input cho react_agent_executor (agent con)
+    # `messages` ở đây sẽ là input messages cho agent CON
+    # Nó nên chỉ chứa câu hỏi hiện tại của người dùng.
+    # Lịch sử chat của graph LỚN đã được QPA xử lý và đưa vào system prompt của agent CON.
+    agent_con_input_state = {
+        "messages": [user_message_for_agent_con], # Chỉ chứa HumanMessage hiện tại
+        "qpa_output_str": qpa_output_str,
+        "user_roles_str": user_roles_str,
+        "asker_role_context": asker_role_context,
+        "plan_steps_str": plan_steps_str
     }
 
     try:
         # Gọi agent executor để xử lý input
-        response = react_agent_executor.invoke(agent_input)
-        print(response)
-        #logger.info(f"Main Assistant Node: Phản hồi đầy đủ từ react_agent_executor: {response}")
-        # Lấy câu trả lời từ response
-        # Trích xuất câu trả lời cuối cùng của AI từ response
+        # Không cần truyền config thread_id ở đây nếu agent con không có checkpointer
+        response_from_agent_con = react_agent_executor.invoke(agent_con_input_state)
+
         final_ai_message_content = "Không có phản hồi từ Amber."
-        if isinstance(response, dict):
-            agent_messages = response.get("messages", [])
-            if agent_messages and isinstance(agent_messages[-1], AIMessage):
-                final_ai_message_content = agent_messages[-1].content
+        # Output của create_react_agent là một dict chứa key "messages"
+        # với danh sách toàn bộ messages trong "run" của agent con đó.
+        if isinstance(response_from_agent_con, dict):
+            agent_con_messages = response_from_agent_con.get("messages", [])
+            if agent_con_messages and isinstance(agent_con_messages[-1], AIMessage):
+                final_ai_message_content = agent_con_messages[-1].content
             else:
-                logger.warning("Không tìm thấy AIMessage cuối cùng trong messages của response từ react_agent_executor.")
+                logger.warning("Không tìm thấy AIMessage cuối cùng trong messages của response từ react_agent_executor (agent con).")
         else:
-            logger.warning(f"Response từ react_agent_executor không phải là dict: {type(response)}")
+            logger.warning(f"Response từ react_agent_executor (agent con) không phải là dict: {type(response_from_agent_con)}")
+
 
         final_answer = final_ai_message_content
-
-        # Fallback nếu không có câu trả lời (đã được xử lý bởi logic trên)
-        if final_answer == "Không có phản hồi từ Amber." or not final_answer.strip() : # Kiểm tra kỹ hơn
+        if final_answer == "Không có phản hồi từ Amber." or not final_answer.strip():
             logger.warning("Final answer rỗng hoặc là fallback mặc định. Sử dụng fallback tùy chỉnh.")
             final_answer = "Ối, Amber tìm kỹ rồi mà vẫn chưa thấy thông tin bạn cần 😥. Bạn thử hỏi lại nhé!"
+        logger.info(f"Main Assistant Node: Phản hồi cuối cùng đã trích xuất:")
 
-        logger.info(f"Main Assistant Node: Phản hồi cuối cùng đã trích xuất: '{final_answer}'")
-
-        # Cập nhật state của graph lớn
-        # messages của graph lớn sẽ là messages cũ + HumanMessage hiện tại (đã có trong state["messages"])
-        # và bây giờ thêm AIMessage từ agent.
-        # Cách bạn làm `state["messages"] + [AIMessage(content=final_answer)]` là ĐÚNG
-        # vì state["messages"] được truyền vào node này chứa lịch sử cho đến HumanMessage hiện tại.
-        
-        updated_graph_messages = state.get("messages", []) + [AIMessage(content=final_answer)]
-
+        # Trả về AIMessage để graph LỚN tự động append vào state["messages"] của nó
         return {
-            # "messages": updated_graph_messages, # Đây là cách cập nhật messages cho graph LỚN
-            # Tuy nhiên, nếu AmelaReactCompatibleAgentState được định nghĩa với MessagesPlaceholder,
-            # LangGraph sẽ tự động thêm AIMessage này vào state["messages"] của graph lớn
-            # nếu node trả về AIMessage trong key "messages".
-            "messages": [AIMessage(content=final_answer)], # Trả về AIMessage để LangGraph tự append
-            "final_answer": final_answer, # Vẫn giữ để tiện truy cập
+            "messages": [AIMessage(content=final_answer)],
+            "final_answer": final_answer,
             "clarification_needed": False
         }
 
     except Exception as e:
-        logger.error(f"Lỗi trong Main Assistant Node: {str(e)}", exc_info=True)
+        logger.error(f"Lỗi trong Main Assistant Node khi gọi agent con: {str(e)}", exc_info=True)
         error_message = f"Xin lỗi, Amber đã gặp sự cố khi xử lý yêu cầu của bạn: {str(e)[:100]}... 😓"
-        # Tương tự, cập nhật messages của graph lớn với lỗi này
-        updated_graph_messages_error = state.get("messages", []) + [AIMessage(content=error_message)]
         return {
-            # "messages": updated_graph_messages_error,
             "messages": [AIMessage(content=error_message)],
             "final_answer": error_message,
             "clarification_needed": False

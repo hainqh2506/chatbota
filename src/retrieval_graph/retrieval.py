@@ -18,10 +18,10 @@ load_dotenv()
 INITIAL_CANDIDATES_COUNT = 25
 NUM_TOP_FILES_TO_CONSIDER = 4
 NUM_TOP_CHUNKS_TO_CONSIDER = 4
-FINAL_CONTEXT_COUNT = 6
+FINAL_CONTEXT_COUNT = 5
 RRF_K_CONST = 40
-rrf_kw_weight = 0.7 # Trọng số cho KW trong RRF (có thể điều chỉnh)
-rrf_vec_weight = 0.3 # Trọng số cho Vector trong RRF (có thể điều chỉnh)
+rrf_kw_weight = 0.4 # Trọng số cho KW trong RRF (có thể điều chỉnh)
+rrf_vec_weight = 0.6 # Trọng số cho Vector trong RRF (có thể điều chỉnh)
 # --- Cấu hình ---
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "AITeamVN/Vietnamese_Embedding") # Cung cấp giá trị mặc định
 ELASTIC_URL = os.getenv("ELASTIC_URL")
