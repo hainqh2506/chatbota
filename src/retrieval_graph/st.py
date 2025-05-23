@@ -49,7 +49,7 @@ if "langgraph_messages" not in st.session_state:
 if "user_roles" not in st.session_state:
     st.session_state.user_roles = ["staff"]
 
-st.title("💬 Amber - RAG Chatbot Nội bộ (Đồng bộ)")
+st.title("💬 Amber - RAG Chatbot")
 st.caption(f"Session ID: {st.session_state.session_id}")
 
 with st.sidebar:

@@ -3,14 +3,14 @@ from typing import List, Optional, TypedDict, Any
 from pydantic import BaseModel, Field
 from langgraph.prebuilt.chat_agent_executor import AgentState as LangGraphReactAgentState
 
-class SubQuestion(BaseModel): # Pydantic v2 BaseModel
-    text: str = Field(..., description="Văn bản của phần câu hỏi con.")
-    intent: str = Field(..., description="Ý định chính của phần câu hỏi con.")
-    entities: List[str] = Field(..., description="Danh sách thực thể/từ khóa chính của phần câu hỏi con.")
-    dependencies: List[int] = Field(
-        default_factory=list,
-        description="Chỉ số các SubQuestion khác mà phần này phụ thuộc vào."
-    )
+# class SubQuestion(BaseModel): # Pydantic v2 BaseModel
+#     text: str = Field(..., description="Văn bản của phần câu hỏi con.")
+#     intent: str = Field(..., description="Ý định chính của phần câu hỏi con.")
+#     entities: List[str] = Field(..., description="Danh sách thực thể/từ khóa chính của phần câu hỏi con.")
+#     dependencies: List[int] = Field(
+#         default_factory=list,
+#         description="Chỉ số các SubQuestion khác mà phần này phụ thuộc vào."
+#     )
 
 class QueryAnalysisOutput(BaseModel): # Pydantic v2 BaseModel
     original_query: str = Field(..., description="Câu hỏi gốc của người dùng.")
@@ -18,10 +18,10 @@ class QueryAnalysisOutput(BaseModel): # Pydantic v2 BaseModel
     asker_role_context: str = Field(..., description="Vai trò suy luận của người hỏi (ví dụ: 'nhân viên', 'quản lý').")
     intent: str = Field(..., description="Ý định chính suy luận từ câu hỏi của người dùng.")
     entities: List[str] = Field(..., description="Danh sách các thực thể hoặc từ khóa chính được trích xuất.")
-    sub_questions: List[SubQuestion] = Field(
-        default_factory=list,
-        description="Danh sách các phần (sub-questions) đã tách và phân tích từ câu hỏi gốc."
-    )
+    #sub_questions: List[SubQuestion] = Field(
+    #     default_factory=list,
+    #     description="Danh sách các phần (sub-questions) đã tách và phân tích từ câu hỏi gốc."
+    # )
     plan_steps: List[str] = Field(
         default_factory=list,
         description="Danh sách các bước hành động cần thực hiện để trả lời từng phần câu hỏi."

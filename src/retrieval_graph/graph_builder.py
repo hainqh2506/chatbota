@@ -2,8 +2,8 @@
 from dotenv import load_dotenv
 import os
 load_dotenv()
-# from langtrace_python_sdk import langtrace # Must precede any llm module imports
-# langtrace.init(api_key = os.environ['LANGTRACE_API_KEY'])
+from langtrace_python_sdk import langtrace # Must precede any llm module imports
+langtrace.init(api_key = os.environ['LANGTRACE_API_KEY'])
 import logging
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import InMemorySaver
