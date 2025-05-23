@@ -34,8 +34,8 @@ class QueryAnalysisOutput(BaseModel): # Pydantic v2 BaseModel
         default=None,
         description="Mức độ phức tạp của câu hỏi ('low', 'medium', 'high')."
     )
-    effective_search_query: List[str] = Field(
-        default_factory=list,
+    effective_search_query:  str  = Field(
+        default_factory= str ,
         description="Danh sách các truy vấn tối ưu cho việc tìm kiếm tài liệu nội bộ, tương ứng với từng sub-question."
     )
     status: str = Field(

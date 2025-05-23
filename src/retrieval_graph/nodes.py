@@ -94,7 +94,7 @@ Nhiệm vụ của bạn là đọc và phân tích câu hỏi gốc của ngư�
      - User: "thử việc"
      => QPA nên hiểu là "quy trình thử việc" và không hỏi thêm về "vấn đề gì liên quan đến thử việc" hay "vai trò" nữa, trừ khi `user_roles` không rõ và quy trình thử việc khác nhau giữa các vai trò. Nếu `user_roles` đã có (ví dụ "Employee"), thì cứ tìm theo vai trò đó.
 6. **Ước tính `complexity_level`:** Đánh giá độ phức tạp tổng thể ("low", "medium", "high").
-7. **Tạo `effective_search_query`:** Truy vấn tìm kiếm tối ưu **dưới dạng danh sách**.  Các truy vấn này nên tận dụng ngữ cảnh từ `chat_history` nếu có.
+7. **Tạo `effective_search_query`:** Truy vấn tìm kiếm tối ưu . Truy vấn này nên tận dụng ngữ cảnh từ `chat_history` nếu có.
 
 **YÊU CẦU OUTPUT (PHẢI TRẢ VỀ JSON VÀ TUÂN THỦ Pydantic Schema được cung cấp)**
 Bạn PHẢI trả về DUY NHẤT một đối tượng JSON hợp lệ, tuân thủ hoàn toàn cấu trúc đã được định nghĩa.
@@ -110,7 +110,7 @@ Ví dụ về cấu trúc Pydantic schema mà bạn cần tuân theo:
   "plan_steps": ["List[String]"],
   "clarifying_questions": ["List[String]"],
   "complexity_level": "String or rỗng",
-  "effective_search_query": ["List[String]"],
+  "effective_search_query": "String",
   "status": "String (luôn là 'processed_for_main_agent')"
 }}
 ```
@@ -120,7 +120,7 @@ Ví dụ về cấu trúc Pydantic schema mà bạn cần tuân theo:
 **VÍ DỤ OUTPUT JSON MONG MUỐN (chỉ trả về JSON object, không có markdown hay text khác):**
 ```json
 {{
-  "original_query": "làm thế nào để đăng ký bảo hiểm xã hội và thực hiện quyết toán thuế thu nhập cá nhân?",
+  "original_query": "làm thế nào để đăng ký bảo hiểm xã hội và thực hiện quyết toán thuế TNCN?",
   "user_roles": ["Developer"],
   "asker_role_context": "nhân viên",
   "intent": "Tìm hiểu quy trình hành chính về bảo hiểm xã hội và quyết toán thuế TNCN",
@@ -134,10 +134,7 @@ Ví dụ về cấu trúc Pydantic schema mà bạn cần tuân theo:
   ],
   "clarifying_questions": [],
   "complexity_level": "medium",
-  "effective_search_query": [
-    "hướng dẫn đăng ký bảo hiểm xã hội Amela",
-    "quy trình quyết toán thuế thu nhập cá nhân Amela"
-  ],
+  "effective_search_query": "làm thế nào để đăng ký bảo hiểm xã hội và thực hiện quyết toán thuế thu nhập cá nhân cho nhân viên?",
   "status": "processed_for_main_agent"
 }}
 ```
@@ -201,7 +198,7 @@ def query_analysis_node(state: AmelaReactCompatibleAgentState) -> AmelaReactComp
             plan_steps=["Có lỗi xảy ra trong quá trình phân tích câu hỏi."],
             clarifying_questions=[],
             complexity_level="unknown",
-            effective_search_query=[],
+            effective_search_query="",
             status="error_in_qpa"
         )
         return {**state, "query_analysis": error_analysis}
@@ -361,7 +358,8 @@ Sử dụng đầy đủ các thành phần sau từ `QueryAnalysisOutput`: `ori
 
 ## PHÂN TÍCH TRUY VẤN HIỆN TẠI:
 {qpa_output_str}
-
+## Effective Search Query:
+{effective_search_query_str}
 ## VAI TRÒ NGƯỜI DÙNG:
 {user_roles_str} (suy luận: {asker_role_context})
 * Nếu không có thông tin vai trò, mặc định là **nhân viên Amela**.
@@ -388,7 +386,8 @@ Sử dụng đầy đủ các thành phần sau từ `QueryAnalysisOutput`: `ori
 * **Trả lời câu hỏi hữu ích với vai trò của người hỏi:**
 
 ## NGUYÊN TẮC TRẢ LỜI:
-- **Trả lời trực tiếp và đầy đủ:** PHẢI dựa vào nội dung context, KHÔNG trả lời tóm tắt qua loa, KHÔNG chỉ dẫn link đơn thuần.
+- **Hỏi cái gì thì trả lời cái đó:** Trả lời đúng theo câu hỏi từ KHÔNG suy diễn, KHÔNG thêm thắt thông tin không cần thiết.
+- **Trả lời trực tiếp và đầy đủ:** PHẢI dựa vào nội dung context, KHÔNG trả lời tóm tắt qua loa, KHÔNG chỉ dẫn link đơn thuần. 
 - **Tổng hợp kỹ lưỡng:** tổng hợp kỹ lưỡng từ context để viết lại câu trả lời trôi chảy.
 - **Trích dẫn nguồn tài liệu liên quan (BẮT BUỘC):**
     -   *Tài liệu liên quan:* Ghi rõ `Source Name` và `Source URL`. Chỉ chèn nguồn nào liên quan tới câu trả lời, không chèn nguồn không liên quan.
@@ -442,6 +441,7 @@ class MainAgentInternalState(TypedDict):
     user_roles_str: str
     asker_role_context: str
     plan_steps_str: str
+    effective_search_query_str : str # Từ QPA
     remaining_steps: int # create_react_agent sẽ tự thêm nếu state_schema là TypedDict và không có
 def main_agent_internal_prompt_builder(state: MainAgentInternalState) -> list[AnyMessage]:
     # main_assistant_prompt_str_system đã được định nghĩa ở trên
@@ -449,7 +449,8 @@ def main_agent_internal_prompt_builder(state: MainAgentInternalState) -> list[An
         qpa_output_str=state["qpa_output_str"],
         user_roles_str=state["user_roles_str"],
         asker_role_context=state["asker_role_context"],
-        plan_steps_str=state["plan_steps_str"]
+        plan_steps_str=state["plan_steps_str"],
+        effective_search_query_str=state["effective_search_query_str"]
     )
     # state["messages"] ở đây là messages mà agent CON đang thấy
     # (sẽ được truyền vào từ main_assistant_node)
@@ -500,6 +501,7 @@ def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
     user_roles_str = ", ".join(query_analysis_result.user_roles or ["Employee"])
     asker_role_context = query_analysis_result.asker_role_context or "Employee"
     plan_steps_str = "\n- ".join(query_analysis_result.plan_steps or ["Không có kế hoạch cụ thể."])
+    effective_search_query_str = query_analysis_result.effective_search_query
     if query_analysis_result.plan_steps:
         plan_steps_str = "- " + plan_steps_str
 
@@ -528,7 +530,8 @@ def main_assistant_node(state: AmelaReactCompatibleAgentState) -> dict:
         "qpa_output_str": qpa_output_str,
         "user_roles_str": user_roles_str,
         "asker_role_context": asker_role_context,
-        "plan_steps_str": plan_steps_str
+        "plan_steps_str": plan_steps_str,
+        "effective_search_query_str": effective_search_query_str
     }
 
     try:

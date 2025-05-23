@@ -16,10 +16,10 @@ load_dotenv()
 
 # --- Tham số cho chiến lược (Có thể chuyển vào config file hoặc class init) ---
 INITIAL_CANDIDATES_COUNT = 25
-NUM_TOP_FILES_TO_CONSIDER = 4
-NUM_TOP_CHUNKS_TO_CONSIDER = 4
+NUM_TOP_FILES_TO_CONSIDER = 2
+NUM_TOP_CHUNKS_TO_CONSIDER = 2
 FINAL_CONTEXT_COUNT = 5
-RRF_K_CONST = 40
+RRF_K_CONST = 25
 rrf_kw_weight = 0.4 # Trọng số cho KW trong RRF (có thể điều chỉnh)
 rrf_vec_weight = 0.6 # Trọng số cho Vector trong RRF (có thể điều chỉnh)
 # --- Cấu hình ---
